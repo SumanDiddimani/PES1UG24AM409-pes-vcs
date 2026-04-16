@@ -129,62 +129,8 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
-    int tree_from_index(ObjectID *id_out) {
-    Tree tree;
-    tree.count = 0;
-
-    DIR *dir = opendir(".");
-    if (!dir) return -1;
-
-    struct dirent *entry;
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-            continue;
-
-        if (strcmp(entry->d_name, ".pes") == 0)
-            continue;
-
-        TreeEntry *te = &tree.entries[tree.count++];
-
-        strcpy(te->name, entry->d_name);
-        te->mode = get_file_mode(entry->d_name);
-
-        FILE *f = fopen(entry->d_name, "rb");
-        if (!f) continue;
-
-        fseek(f, 0, SEEK_END);
-        long size = ftell(f);
-        rewind(f);
-
-        void *data = malloc(size);
-        fread(data, 1, size, f);
-        fclose(f);
-
-        char hash_hex[65];
-        object_write(data, size, hash_hex);
-
-        for (int i = 0; i < HASH_SIZE; i++) {
-            sscanf(hash_hex + i * 2, "%2hhx", &te->hash.hash[i]);
-        }
-
-        free(data);
-    }
-
-    closedir(dir);
-
-    void *data;
-    size_t len;
-
-    if (tree_serialize(&tree, &data, &len) != 0) {
-        return -1;
-    }
-
-    if (object_write(data, len, id_out->hash) != 0) {
-        free(data);
-        return -1;
-    }
-
-    free(data);
-    return 0;
-}
+int tree_from_index(ObjectID *id_out) {
+    // TODO: Implement recursive tree building
+    // (See Lab Appendix for logical steps)
+    (void)id_out;
+    return -1
