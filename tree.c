@@ -15,6 +15,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "index.h"
 
 // ─── Mode Constants ─────────────────────────────────────────────────────────
 
@@ -113,7 +114,77 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
     *len_out = offset;
     return 0;
 }
+int build_tree(IndexEntry *entries, int count, const char *prefix, ObjectID *out_id) {
+    Tree tree;
+    tree.count = 0;
 
+    for (int i = 0; i < count; i++) {
+        const char *path = entries[i].path;
+
+        // skip if not in current directory level
+        if (prefix && strncmp(path, prefix, strlen(prefix)) != 0)
+            continue;
+
+        const char *rel = prefix ? path + strlen(prefix) : path;
+
+        const char *slash = strchr(rel, '/');
+
+        if (!slash) {
+            // file
+            TreeEntry *e = &tree.entries[tree.count++];
+
+            e->mode = entries[i].mode;
+            strcpy(e->name, rel);
+            memcpy(e->hash.hash, entries[i].hash.hash, HASH_SIZE);
+        } else {
+            // directory
+            char dirname[256];
+            int len = slash - rel;
+            strncpy(dirname, rel, len);
+            dirname[len] = '\0';
+
+            // avoid duplicate directories
+            int exists = 0;
+            for (int j = 0; j < tree.count; j++) {
+                if (strcmp(tree.entries[j].name, dirname) == 0) {
+                    exists = 1;
+                    break;
+                }
+            }
+            if (exists) continue;
+
+            // build new prefix
+            char new_prefix[512];
+            if (prefix)
+                snprintf(new_prefix, sizeof(new_prefix), "%s%s/", prefix, dirname);
+            else
+                snprintf(new_prefix, sizeof(new_prefix), "%s/", dirname);
+
+            ObjectID sub_id;
+            if (build_tree(entries, count, new_prefix, &sub_id) != 0)
+                return -1;
+
+            TreeEntry *e = &tree.entries[tree.count++];
+            e->mode = MODE_DIR;
+            strcpy(e->name, dirname);
+            memcpy(e->hash.hash, sub_id.hash, HASH_SIZE);
+        }
+    }
+
+    void *data;
+    size_t len;
+
+    if (tree_serialize(&tree, &data, &len) != 0)
+        return -1;
+
+    if (object_write(OBJ_TREE, data, len, out_id) != 0) {
+        free(data);
+        return -1;
+    }
+
+    free(data);
+    return 0;
+}
 // ─── TODO: Implement these ──────────────────────────────────────────────────
 
 // Build a tree hierarchy from the current index and write all tree
@@ -129,58 +200,19 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
-    int tree_from_index(ObjectID *id_out) {
+int tree_from_index(ObjectID *id_out) {
+    // TODO: Implement recursive tree building
+    // (See Lab Appendix for logical steps)
     Tree tree;
     tree.count = 0;
-
-    DIR *dir = opendir(".");
-    if (!dir) return -1;
-
-    struct dirent *entry;
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-            continue;
-
-        if (strcmp(entry->d_name, ".pes") == 0)
-            continue;
-
-        TreeEntry *te = &tree.entries[tree.count++];
-
-        strcpy(te->name, entry->d_name);
-        te->mode = get_file_mode(entry->d_name);
-
-        FILE *f = fopen(entry->d_name, "rb");
-        if (!f) continue;
-
-        fseek(f, 0, SEEK_END);
-        long size = ftell(f);
-        rewind(f);
-
-        void *data = malloc(size);
-        fread(data, 1, size, f);
-        fclose(f);
-
-        char hash_hex[65];
-        object_write(data, size, hash_hex);
-
-        for (int i = 0; i < HASH_SIZE; i++) {
-            sscanf(hash_hex + i * 2, "%2hhx", &te->hash.hash[i]);
-        }
-
-        free(data);
-    }
-
-    closedir(dir);
 
     void *data;
     size_t len;
 
-    if (tree_serialize(&tree, &data, &len) != 0) {
+    if (tree_serialize(&tree, &data, &len) != 0)
         return -1;
-    }
 
-    if (object_write(data, len, id_out->hash) != 0) {
+    if (object_write(OBJ_TREE, data, len, id_out) != 0) {
         free(data);
         return -1;
     }
