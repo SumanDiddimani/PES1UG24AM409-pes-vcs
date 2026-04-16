@@ -18,3 +18,9 @@ test_tree
 .idea/
 
 
+*.o
+pes
+.pes/
+*.txt
+*.pdf
+*.save
